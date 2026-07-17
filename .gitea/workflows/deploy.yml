@@ -7,7 +7,7 @@ env:
 
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
+    runs-on: desktop
     steps:
       - uses: actions/checkout@v4
 
