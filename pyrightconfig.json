@@ -1,0 +1,13 @@
+{
+  "typeCoverage": "strict",
+  "pythonVersion": "3.12",
+  "reportMissingTypeStubs": true,
+  "reportUnusedIgnoreComments": true,
+  "exclude": [
+    "**/__pycache__",
+    "**/.venv",
+    "**/.git",
+    "**/build",
+    "**/dist"
+  ]
+}

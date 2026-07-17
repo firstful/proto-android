@@ -1,0 +1,71 @@
+name: Deploy Talaria
+run-name: Build & Deploy Talaria
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  IMAGE_NAME: talaria
+  CONTAINER_NAME: talaria
+  HOST_PORT: 4002
+  CONTAINER_PORT: 8321
+  HERMES_API_URL: http://host.containers.internal:8642
+  # HERMES_API_KEY is set as a Gitea Actions secret named HERMES_API_KEY
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to local Docker registry
+        run: echo "Using local Docker daemon"
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --tag ${{ env.IMAGE_NAME }}:latest \
+            --memory 2g \
+            --network host \
+            -f Dockerfile \
+            .
+        env:
+          DOCKER_BUILDKIT: 1
+
+      - name: Stop and remove existing container
+        run: |
+          docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+          docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+
+      - name: Run new container
+        run: |
+          docker run -d \
+            --name ${{ env.CONTAINER_NAME }} \
+            --restart unless-stopped \
+            -p ${{ env.HOST_PORT }}:${{ env.CONTAINER_PORT }} \
+            --memory 2g \
+            -e HOST=0.0.0.0 \
+            -e PORT=${{ env.CONTAINER_PORT }} \
+            -e TALARIA_DOMAIN=talaria.ffilt.us \
+            -e HERMES_API_URL=${{ env.HERMES_API_URL }} \
+            -e HERMES_API_KEY=${{ secrets.HERMES_API_KEY }} \
+            -e STT_MODEL=base \
+            -e LOG_LEVEL=info \
+            -e HF_HOME=/app/cache \
+            -v talaria-cache:/app/cache \
+            ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      - name: Verify container is running
+        run: |
+          sleep 5
+          docker ps --filter name=${{ env.CONTAINER_NAME }} --format "{{.ID}} {{.Status}}"
+          echo "Container ${{ env.CONTAINER_NAME }} deployed on port ${{ env.HOST_PORT }}:${{ env.CONTAINER_PORT }}"
