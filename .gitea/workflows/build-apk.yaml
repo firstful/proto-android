@@ -17,6 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install pyyaml (cimg image lacks it)
+        run: |
+          python3 -m pip install --quiet pyyaml 2>/dev/null || sudo apt-get install -y -qq python3-yaml >/dev/null
+          python3 -c "import yaml; print('pyyaml OK')"
+
       - name: Read manifest
         id: manifest
         run: |
