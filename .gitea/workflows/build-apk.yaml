@@ -30,9 +30,10 @@ jobs:
       - name: Ensure Cloudflare Access token for subdomain
         env:
           CF_MINT_TOKEN: ${{ secrets.CF_MINT_TOKEN }}
+          CF_ACCOUNT_ID: 224469ecf8e8a619106fe8ffa19c7a43
         run: |
           SUBDOMAIN=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['subdomains'][0]['hostname'])")
-          python3 scripts/ci-ensure-access-token.py "$SUBDOMAIN"
+          python3 scripts/ci-ensure-access-token.py "$SUBDOMAIN" >> "$GITHUB_ENV"
 
       - name: Decode signing keystore
         env:
