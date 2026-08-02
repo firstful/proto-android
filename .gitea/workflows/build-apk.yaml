@@ -41,6 +41,8 @@ jobs:
         env:
           CF_MINT_TOKEN: ${{ secrets.CF_MINT_TOKEN }}
           CF_ACCOUNT_ID: 224469ecf8e8a619106fe8ffa19c7a43
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           SUBDOMAIN=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['subdomains'][0]['hostname'])")
           python3 scripts/ci-ensure-access-token.py "$SUBDOMAIN" >> "$GITHUB_ENV"
