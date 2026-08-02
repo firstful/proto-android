@@ -22,6 +22,13 @@ jobs:
           python3 -m pip install --quiet pyyaml 2>/dev/null || sudo apt-get install -y -qq python3-yaml >/dev/null
           python3 -c "import yaml; print('pyyaml OK')"
 
+      - name: DEBUG fingerprint CF_MINT_TOKEN
+        env:
+          CF_MINT_TOKEN: ${{ secrets.CF_MINT_TOKEN }}
+        run: |
+          echo "len=$(printf %s "${CF_MINT_TOKEN:-}" | wc -c)"
+          printf %s "${CF_MINT_TOKEN:-}" | sha256sum
+
       - name: Read manifest
         id: manifest
         run: |
