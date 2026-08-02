@@ -9,13 +9,17 @@ jobs:
   build-apk:
     runs-on: [android]
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install python3 + curl (SDK image may lack them)
+      - name: Install deps (SDK image lacks python3/node; git usually present)
         run: |
           apt-get update -qq >/dev/null 2>&1
-          apt-get install -y -qq python3 curl >/dev/null 2>&1
-          python3 --version && curl --version | head -1
+          apt-get install -y -qq python3 curl git >/dev/null 2>&1
+          python3 --version && git --version
+
+      # Manual clone — actions/checkout@v4 is a node action and the android-sdk
+      # image has no node. GITHUB_TOKEN is injected by Gitea Actions.
+      - name: Clone repo
+        run: |
+          git clone --depth 50 "http://reeds:${GITHUB_TOKEN}@192.168.1.2:3000/${GITHUB_REPOSITORY}.git" .
 
       - name: Decode signing keystore
         run: |
