@@ -118,10 +118,11 @@ app_id = app["id"]
 
 # --- non_identity policy gated by the service token (decision must be non_identity) ---
 pols = cf(f"/accounts/{acc}/access/policies")["result"]
-pol = next((p for p in pols if p.get("app_id") == app_id and p.get("decision") == "non_identity"), None)
+pol_name = f"CI {SUB} service token"
+pol = next((p for p in pols if p.get("name") == pol_name), None)
 if not pol:
     cf(f"/accounts/{acc}/access/policies", "POST",
-       {"name": f"CI {SUB} service token", "decision": "non_identity",
+       {"name": pol_name, "decision": "non_identity",
         "include": [{"service_token": {"token_id": tok_id}}], "app_id": app_id})
 
 # --- best-effort: save repo secrets for next time ---
