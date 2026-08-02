@@ -72,11 +72,13 @@ except SystemExit as e:
 toks = cf(f"/accounts/{acc}/access/service_tokens")["result"]
 tok = next((t for t in toks if t.get("name") == f"ci-{SUB}"), None)
 if tok:
+    tok_id = tok["id"]
     rot = cf(f"/accounts/{acc}/access/service_tokens/{tok['id']}/rotate", "POST")
     new_id, new_secret = rot["result"]["client_id"], rot["result"]["client_secret"]
 else:
     st = cf(f"/accounts/{acc}/access/service_tokens", "POST",
             {"name": f"ci-{SUB}", "type": "service_token"})["result"]
+    tok_id = st["id"]
     new_id, new_secret = st["client_id"], st["client_secret"]
 
 # --- Access app: find by domain, else create ---
@@ -94,7 +96,7 @@ pol = next((p for p in pols if p.get("app_id") == app_id and p.get("decision") =
 if not pol:
     cf(f"/accounts/{acc}/access/policies", "POST",
        {"name": f"CI {SUB} service token", "decision": "non_identity",
-        "include": [{"service_token": {"token_id": new_id}}], "app_id": app_id})
+        "include": [{"service_token": {"token_id": tok_id}}], "app_id": app_id})
 
 # --- best-effort: save repo secrets for next time ---
 # Gitea stores the "data" field AS-IS (no base64 decode); raw values only.
