@@ -1,7 +1,7 @@
-# Talaria + APK Build Pipeline — HANDOFF (2026-08-02)
+# Talaria + APK Build Pipeline — HANDOFF (2026-08-02, UPDATED — GREEN)
 
-**Status: talaria server LIVE and healthy; APK build pipeline WIRED but NOT green
-(blocked on CF token step, error 9106 — see below).**
+**Status: talaria server LIVE; APK build pipeline GREEN end-to-end (run 95, 07:09 UTC):
+signed APK built on the k3s runner and published to the Sutliff Apps store.**
 
 ---
 
@@ -9,11 +9,15 @@
 
 | Piece | State |
 |---|---|
-| talaria voice gateway (server) | ✅ Deployed in k3s ns `talaria`, pod Running on reed-a320ms2h, `/health` OK (stt_loaded, hermes_healthy), LAN split-DNS 200 |
-| App store backend | ✅ Deployed ns `appstore`, `https://apps.ffilt.us/health` OK, `/apps.json` empty catalog |
-| APK build pipeline (CI) | ⚠️ Wired (runner android label, workflow, secrets, signing) — last run **66 failed** at the CF token step |
+| talaria voice gateway (server) | ✅ Deployed in k3s ns `talaria`, pod Running on reed-a320ms2h, `/health` OK (AVX-pinned) |
+| App store backend | ✅ Deployed ns `appstore`, `https://apps.ffilt.us/health` OK, catalog serves the talaria APK |
+| APK build pipeline (CI) | ✅ **GREEN — run 95 success** (SDK 36, AGP 8.9.2, Gradle 8.11.1, signed, published HTTP 200) |
 | Sutliff Apps store Android client | ❌ Planned, not started |
-| Access app for `apps.ffilt.us` / `talaria.ffilt.us` | ❌ Pending (external hits 302 at Access; LAN bypasses) |
+| Access app for `apps.ffilt.us` / `talaria.ffilt.us` | ⚠️ talaria has a non_identity service-token app (for the APK's WAN path); `apps.ffilt.us` Google-login app still pending (needs family emails) |
+
+**Runner location (2026-08-02): wyse5070.** reed-a320ms2h has a BROKEN layer-2 link
+(1.3s RTT to the router, ~0 B/s egress to Cloudflare) — see infra notes below. The
+runner + its Longhorn storage were moved off it.
 
 **Parallel-work warning:** a sibling session was building the same pipeline concurrently.
 The remote `reeds/talaria` `origin/main` now contains THEIR commits
@@ -24,38 +28,38 @@ re-apply older local edits; build on the remote state. Their approach == the des
 
 ---
 
-## The current blocker — CF 9106 in the token step
+## The blocker that WAS — CF 9106 + a chain of real issues (all fixed by run 95)
 
-**Symptom (run 66, job 72, step "Ensure Cloudflare Access token"):**
-```
-CF API GET /accounts/224469ecf8e8a619106fe8ffa19c7a43/access/service_tokens:
-400 {"code":9106,"message":"Authentication failed (status: 400)"}
-```
+The 9106 was just the first in a chain. What was actually wrong and fixed:
 
-**Facts established:**
-- The secret IS injected — job log shows `CF_MINT_TOKEN: ***` (Gitea masks non-empty secrets).
-- The token value originally stored (`cfut_mwIC…add6`, minted from the vault master as
-  `cf-mint-ci`, 1y TTL, WAN-IP-bound to 71.74.85.232/32) **verifies OK from the control
-  plane with `curl -4`**.
-- The workflow's script (`scripts/ci-ensure-access-token.py`, sibling version) uses
-  **urllib, not curl** — it does NOT force IPv4. The box has native IPv6 egress; an
-  IPv6-sourced request to an IPv4-bound token gives CF error 9109 ("from location: <ipv6>"),
-  and empty/mangled headers give 9106. **IPv6 egress is the prime suspect.**
-- The sibling commit mentions minting `cf-mint-ci` — **the stored CF_MINT_TOKEN value may
-  have been overwritten** (secrets are write-only; can't read back to compare).
+1. **CF_MINT_TOKEN** — the stored value was base64'd (Gitea stores the `data` field
+   AS-IS; base64 is only for secrets the consumer decodes) and the original token was
+   WAN-IP-bound (pod egress ≠ the bound IP). Fixed: re-minted `cf-mint-ci` from the
+   vault master (Access apps+policies Write, Service Tokens Write, Account Settings
+   Read, account-scoped, NO IP restriction), stored RAW in the repo secret + vault.
+2. **IPv6/DNS egress** — CF calls now go through `curl -4` with the resolved IP pinned
+   via `--resolve` + retries (script `ci-ensure-access-token.py`). Pod DNS was
+   kube-dns with ndots:5 ≈ 2s/lookup; the runner deployment now uses
+   `dnsPolicy: Default` (node resolver = OPNsense).
+3. **Policy rule bug** — Access policy `include.service_token.token_id` must be the
+   token's UUID (`id`), not `client_id`. Also match policies by name to avoid dupes.
+4. **SDK version** — project was SDK 34; the runner image ships 36/37. Upgraded to
+   compileSdk/targetSdk 36, buildTools 36.0.0, AGP 8.9.2, Gradle 8.11.1,
+   `android.useAndroidX=true` (AGP 8.9 hard-fails without it).
+5. **Build stalls** — pod egress crawled (~400KB/s) + a 1.3s-RTT layer-2 link on
+   reed-a320ms2h. The runner moved to **wyse5070** (20MB/s egress). Longhorn replica
+   on the broken node was also stalling volume I/O: cache volumes cut to 1 replica on
+   wyse5070, worker marked Longhorn-unschedulable. Gradle gets HTTP timeouts +
+   retries via `gradle.properties`; `gradle-cache` docker volume (in the DinD) persists
+   the gradle home across jobs.
+6. **Publish 422** — the store's UploadFile field is `payload`; the script sent
+   `file=`. Fixed (`-F payload=@…`).
+7. **Runner restarts** — the runner's PVCs are RWO; a rollout restart deadlocks (new
+   pod can't mount until the old dies). Scale to 0 → 1, or delete the old pod first.
 
-**Next diagnostic steps (in order):**
-1. Test the known token from a pod pinned to reed-a320ms2h (busybox `wget` with
-   `--header="Authorization: Bearer …"`) vs the control plane. If it fails from the node
-   but works from the CP → egress/IP issue, not the token.
-2. Check the node's egress: `wget -qO- https://api.cloudflare.com/cdn-cgi/trace | grep ^ip=`
-   from a pod on reed-a320ms2h — is the source the WAN IPv4 (71.74.85.232) or an IPv6?
-3. If IPv6 is the source → force IPv4 in the script (urllib doesn't force it; either
-   `curl -4` via subprocess or set the socket family) and re-run. This is the same
-   `curl -4` gotcha documented in the `cloudflare-token-minting` skill.
-4. If the token itself fails everywhere → the secret was overwritten; re-mint via
-   `cf-mint-token mint access-service-tokens 31536000 cf-mint-ci` and PUT it back
-   (Gitea API: `PUT /api/v1/repos/reeds/talaria/actions/secrets/CF_MINT_TOKEN`).
+**Live state: run 95 GREEN** — BUILD SUCCESSFUL 17m38s, V2 signature
+CN=Sutliff Homelab verified, publish HTTP 200, catalog + OTA + APK download verified
+at apps.ffilt.us.
 
 ---
 
@@ -121,15 +125,17 @@ Publish token: k8s secret `appstore-publish-token` + Gitea secret `APPSTORE_PUBL
 7. **Non-AVX SIGILL (exit 132):** ctranslate2 needs AVX; only reed-a320ms2h can run
    talaria (nodeSelector rook.io/avx=true).
 
-## Next steps (owner: whoever picks this up)
+## Next steps
 
-1. **Fix the 9106** (diagnostic ladder above), get a green run.
-2. Verify the produced APK: `apksigner verify --print-certs` (signed with sutliff key),
-   `CF_ACCESS_CLIENT_ID` in BuildConfig, APK + manifest landed on the store
-   (`/apps.json` + `/apk/Talaria/talaria-*.apk`).
-3. Add Access app for `apps.ffilt.us` (Google login, family emails) so the store works
-   externally; `talaria.ffilt.us` service-token app for the APK's WAN path.
-4. Build the **Sutliff Apps** store Android client (catalog + OTA updates) — first app
-   to ride the pipeline.
-5. Guest onboarding: per-guest keystore (`Android Keystore - <guest>`) + `publisher`
+1. ✅ ~~Fix the 9106~~ — pipeline GREEN (run 95). Re-run = fast (gradle-cache volume warm).
+2. **Fix reed-a320ms2h's link** — 1.3s RTT to the router, ~0 B/s egress. Hardware
+   suspect: USB NIC (`enxb42e99e9863a`) / cable / switch port. It's also a Longhorn
+   replica host (marked unschedulable 2026-08-02) — repair the link, then re-enable.
+3. **Access app for `apps.ffilt.us`** (Google login, family emails) so the store works
+   externally; `talaria.ffilt.us` already has its non_identity service-token app.
+4. **Wire real versioning** — `ci-publish-apk.py` hardcodes `version: "1"`; the gradle
+   `printVersionName` task exists but isn't called by the workflow. The store's OTA
+   manifest should carry the real versionName.
+5. Build the **Sutliff Apps** store Android client (catalog + OTA updates).
+6. Guest onboarding: per-guest keystore (`Android Keystore - <guest>`) + `publisher`
    field wiring.
