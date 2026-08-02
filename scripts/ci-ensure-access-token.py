@@ -19,6 +19,7 @@ Exit 0 = env lines printed. Exit 1 = hard failure.
 """
 import json
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -43,15 +44,29 @@ if not mint:
     sys.exit("CF_ACCESS_CLIENT_ID/SECRET missing and no CF_MINT_TOKEN to mint one")
 
 
+def resolve_cf():
+    """Resolve api.cloudflare.com IPv4 once — node DNS flakes intermittently."""
+    for attempt in range(10):
+        try:
+            return socket.getaddrinfo("api.cloudflare.com", 443, socket.AF_INET)[0][4][0]
+        except socket.gaierror:
+            time.sleep(3)
+    raise SystemExit("could not resolve api.cloudflare.com (node DNS flaky)")
+
+
+CF_IP = resolve_cf()
+
+
 def cf(path, method="GET", body=None):
-    """CF API call via curl -4 (pod IPv6 egress is flaky — resets). Retry 3x."""
+    """CF API call via curl -4 pinned to the resolved IPv4 (DNS + IPv6-proof). Retry 5x."""
     args = ["curl", "-4", "-sS", "-X", method, CF + path,
+            "--resolve", f"api.cloudflare.com:443:{CF_IP}",
             "-H", f"Authorization: Bearer {mint}", "-H", "Content-Type: application/json",
             "--connect-timeout", "15", "--max-time", "45"]
     if body is not None:
         args += ["-d", json.dumps(body)]
     last = None
-    for attempt in range(3):
+    for attempt in range(5):
         r = subprocess.run(args, capture_output=True, text=True, timeout=60)
         if r.returncode == 0 and r.stdout.strip():
             try:
@@ -64,8 +79,8 @@ def cf(path, method="GET", body=None):
                 return d
         else:
             last = f"curl exit {r.returncode}: {r.stderr[:200]}"
-        time.sleep(2 * (attempt + 1))
-    raise SystemExit(f"CF API {method} {path} failed after 3 attempts: {last}")
+        time.sleep(5 * (attempt + 1))
+    raise SystemExit(f"CF API {method} {path} failed after 5 attempts: {last}")
 
 
 try:
