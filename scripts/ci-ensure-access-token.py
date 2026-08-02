@@ -17,7 +17,6 @@ Behavior:
 
 Exit 0 = env lines printed. Exit 1 = hard failure.
 """
-import base64
 import json
 import os
 import sys
@@ -98,6 +97,9 @@ if not pol:
         "include": [{"service_token": {"token_id": new_id}}], "app_id": app_id})
 
 # --- best-effort: save repo secrets for next time ---
+# Gitea stores the "data" field AS-IS (no base64 decode); raw values only.
+# (base64 in "data" is only for secrets the consumer decodes itself, e.g.
+# ANDROID_KEYSTORE_B64.)
 repo = os.environ.get("GITHUB_REPOSITORY", "")
 gtok = os.environ.get("GITEA_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
 if repo and gtok:
@@ -106,7 +108,7 @@ if repo and gtok:
         req = urllib.request.Request(
             base + name, method="PUT",
             headers={"Authorization": f"token {gtok}", "Content-Type": "application/json"},
-            data=json.dumps({"data": base64.b64encode(val.encode()).decode()}).encode(),
+            data=json.dumps({"data": val}).encode(),
         )
         try:
             urllib.request.urlopen(req, timeout=30).read()
