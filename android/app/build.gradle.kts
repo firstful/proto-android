@@ -69,7 +69,8 @@ val hasKeystore = ksFile != null && File(ksFile).exists()
 
 android {
     namespace = "com.reedsutliff.talaria"
-    compileSdk = 34
+    compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     signingConfigs {
         if (hasKeystore) {
@@ -85,7 +86,7 @@ android {
     defaultConfig {
         applicationId = "com.reedsutliff.talaria"
         minSdk = 26
-        targetSdk = 34
+        targetSdk = 36
         versionCode = gitCommitCount
         versionName = versionNameStr
 
