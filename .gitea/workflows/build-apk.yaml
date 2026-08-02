@@ -13,7 +13,12 @@ jobs:
     runs-on: [android]
     container:
       image: cimg/android:2026.07-node
-      options: --user root
+      # --user root: the SDK image needs it for apt/pip.
+      # -v gradle-cache: job containers are recreated per run; this persists the
+      # gradle home (dist + deps) across jobs. Volume lives in the runner's DinD
+      # daemon (docker-vol PVC). NOTE: runner-config container.options is
+      # IGNORED when the job sets its own container.options — must repeat here.
+      options: --user root -v gradle-cache:/root/.gradle
     steps:
       - uses: actions/checkout@v4
 
