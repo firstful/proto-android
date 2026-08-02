@@ -59,12 +59,15 @@ def cf(path, method="GET", body=None):
 
 
 try:
-    accts = cf("/accounts")["result"]
+    if os.environ.get("CF_ACCOUNT_ID"):
+        acc = os.environ["CF_ACCOUNT_ID"]
+    else:
+        accts = cf("/accounts")["result"]
+        if not accts:
+            sys.exit("CF_MINT_TOKEN sees no accounts (set CF_ACCOUNT_ID to skip account listing)")
+        acc = accts[0]["id"]
 except SystemExit as e:
     sys.exit(f"CF_MINT_TOKEN cannot list accounts: {e}")
-if not accts:
-    sys.exit("CF_MINT_TOKEN sees no accounts")
-acc = accts[0]["id"]
 
 # --- service token: find by name, else create; if exists but secret lost, rotate ---
 toks = cf(f"/accounts/{acc}/access/service_tokens")["result"]

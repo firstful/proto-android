@@ -33,6 +33,7 @@ jobs:
           python3 scripts/ci-ensure-access-token.py talaria.ffilt.us >> "$GITHUB_ENV"
         env:
           CF_MINT_TOKEN: ${{ secrets.CF_MINT_TOKEN }}
+          CF_ACCOUNT_ID: 224469ecf8e8a619106fe8ffa19c7a43
           GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Build release APK
