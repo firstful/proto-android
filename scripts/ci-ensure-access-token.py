@@ -117,13 +117,17 @@ if not app:
 app_id = app["id"]
 
 # --- non_identity policy gated by the service token (decision must be non_identity) ---
-pols = cf(f"/accounts/{acc}/access/policies")["result"]
+# FIX (2026-08-02): policies MUST be created on the APP-SCOPED endpoint
+#   /access/apps/{app_id}/policies. The account-level POST /access/policies with
+#   app_id in the body SILENTLY creates an ORPHAN policy (app_count: 0, bound to
+#   no app) — Access then falls through to the wildcard app and 302s the APK.
+pols = cf(f"/accounts/{acc}/access/apps/{app_id}/policies")["result"]
 pol_name = f"CI {SUB} service token"
 pol = next((p for p in pols if p.get("name") == pol_name), None)
 if not pol:
-    cf(f"/accounts/{acc}/access/policies", "POST",
+    cf(f"/accounts/{acc}/access/apps/{app_id}/policies", "POST",
        {"name": pol_name, "decision": "non_identity",
-        "include": [{"service_token": {"token_id": tok_id}}], "app_id": app_id})
+        "include": [{"service_token": {"token_id": tok_id}}]})
 
 # --- best-effort: save repo secrets for next time ---
 # Gitea stores the "data" field AS-IS (no base64 decode); raw values only.
