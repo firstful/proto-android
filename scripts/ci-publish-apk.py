@@ -19,7 +19,7 @@ def post(path, headers, files=None, data=None):
            "-H", f"X-Publish-Token: {os.environ['APPSTORE_PUBLISH_TOKEN']}"] + \
           [h for kv in headers.items() for h in ("-H", f"{kv[0]}: {kv[1]}")]
     if files:
-        cmd += ["-F", f"file=@{files}"]
+        cmd += ["-F", f"payload=@{files}"]
     if data:
         cmd += ["-F", f"manifest={json.dumps(data)}"]
     cmd.append(STORE + path)
