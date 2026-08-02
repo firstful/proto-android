@@ -61,11 +61,11 @@ val versionNameStr = providedVersionName ?: "${gitCommitCount}.${buildDate}.${bu
 // The pipeline decodes ANDROID_KEYSTORE_B64 (repo secret) to a file and exports
 // ANDROID_KEYSTORE_FILE/PASSWORD, ANDROID_KEY_ALIAS/KEY_PASSWORD as env. Local
 // builds without a keystore keep release unsigned (debug builds unaffected).
-val storeFile = System.getenv("ANDROID_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
-val storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
-val keyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "sutliff"
-val keyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: storePassword
-val hasKeystore = storeFile != null && File(storeFile).exists()
+val ksFile = System.getenv("ANDROID_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }
+val ksStorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
+val ksKeyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: "sutliff"
+val ksKeyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: ksStorePassword
+val hasKeystore = ksFile != null && File(ksFile).exists()
 
 android {
     namespace = "com.reedsutliff.talaria"
@@ -74,10 +74,10 @@ android {
     signingConfigs {
         if (hasKeystore) {
             create("release") {
-                storeFile = File(storeFile!!)
-                storePassword = storePassword
-                keyAlias = keyAlias
-                keyPassword = keyPassword
+                storeFile = File(ksFile!!)
+                storePassword = ksStorePassword
+                keyAlias = ksKeyAlias
+                keyPassword = ksKeyPassword
             }
         }
     }
