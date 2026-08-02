@@ -19,9 +19,9 @@ Exit 0 = env lines printed. Exit 1 = hard failure.
 """
 import json
 import os
+import subprocess
 import sys
-import urllib.error
-import urllib.request
+import time
 
 CF = "https://api.cloudflare.com/client/v4"
 GITEA = os.environ.get("GITEA_URL", "http://192.168.1.2:3000")
@@ -44,17 +44,28 @@ if not mint:
 
 
 def cf(path, method="GET", body=None):
-    req = urllib.request.Request(
-        CF + path,
-        method=method,
-        headers={"Authorization": f"Bearer {mint}", "Content-Type": "application/json"},
-    )
-    data = json.dumps(body).encode() if body is not None else None
-    try:
-        with urllib.request.urlopen(req, data=data, timeout=30) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        raise SystemExit(f"CF API {method} {path}: {e.code} {e.read()[:300]}")
+    """CF API call via curl -4 (pod IPv6 egress is flaky — resets). Retry 3x."""
+    args = ["curl", "-4", "-sS", "-X", method, CF + path,
+            "-H", f"Authorization: Bearer {mint}", "-H", "Content-Type: application/json",
+            "--connect-timeout", "15", "--max-time", "45"]
+    if body is not None:
+        args += ["-d", json.dumps(body)]
+    last = None
+    for attempt in range(3):
+        r = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        if r.returncode == 0 and r.stdout.strip():
+            try:
+                d = json.loads(r.stdout)
+            except json.JSONDecodeError:
+                last = f"non-JSON response: {r.stdout[:200]}"
+            else:
+                if not d.get("success"):
+                    raise SystemExit(f"CF API {method} {path}: {d.get('errors')}")
+                return d
+        else:
+            last = f"curl exit {r.returncode}: {r.stderr[:200]}"
+        time.sleep(2 * (attempt + 1))
+    raise SystemExit(f"CF API {method} {path} failed after 3 attempts: {last}")
 
 
 try:
@@ -107,15 +118,13 @@ gtok = os.environ.get("GITEA_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
 if repo and gtok:
     base = f"{GITEA}/api/v1/repos/{repo}/actions/secrets/"
     for name, val in (("CF_ACCESS_CLIENT_ID", new_id), ("CF_ACCESS_CLIENT_SECRET", new_secret)):
-        req = urllib.request.Request(
-            base + name, method="PUT",
-            headers={"Authorization": f"token {gtok}", "Content-Type": "application/json"},
-            data=json.dumps({"data": val}).encode(),
-        )
-        try:
-            urllib.request.urlopen(req, timeout=30).read()
-        except Exception as e:  # noqa: BLE001
-            print(f"::warning::could not save repo secret {name}: {e}")
+        r = subprocess.run(
+            ["curl", "-sS", "-X", "PUT", base + name,
+             "-H", f"Authorization: token {gtok}", "-H", "Content-Type: application/json",
+             "-d", json.dumps({"data": val})],
+            capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            print(f"::warning::could not save repo secret {name}: {r.stderr[:200]}")
 
 print(f"CF_ACCESS_CLIENT_ID={new_id}")
 print(f"CF_ACCESS_CLIENT_SECRET={new_secret}")
