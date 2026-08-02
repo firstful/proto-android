@@ -1,121 +1,114 @@
 #!/usr/bin/env python3
-"""ci-ensure-access-token.py <subdomain> — make a Cloudflare Access service token
-available to this build for the declared subdomain.
+"""Ensure a CF Access service token exists for a subdomain and expose it to the build.
 
-If repo secrets CF_ACCESS_CLIENT_ID/SECRET already exist, the runner injects them
-as env and this script just re-exports them for the job. Otherwise it mints a
-service token (via CF_MINT_TOKEN, scoped access-service-tokens), ensures the
-Access app + non_identity policy exist, stores the pair as repo secrets (so future
-builds reuse), and exports them.
+Usage: ci-ensure-access-token.py <subdomain>
 
-Env: CF_MINT_TOKEN (repo secret), GITHUB_TOKEN (runner), GITHUB_REPOSITORY,
-CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET (optional, if already provisioned).
+Behavior:
+  1. If CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET are already set (injected from
+     repo secrets by the workflow), just re-export them.
+  2. Else mint with CF_MINT_TOKEN:
+       - find-or-create the Access service token (name "ci-<subdomain>"; if one exists
+         but we lost the secret, ROTATE it to get a fresh client_secret)
+       - find-or-create the Access app for the subdomain (self_hosted)
+       - find-or-create a NON_IDENTITY policy on that app gated by the service token
+         (decision non_identity; "allow" would 302)
+       - best-effort PUT the pair as repo secrets for next time
+  3. Print CF_ACCESS_CLIENT_ID=... / CF_ACCESS_CLIENT_SECRET=... for $GITHUB_ENV.
+
+Exit 0 = env lines printed. Exit 1 = hard failure.
 """
+import base64
 import json
 import os
-import subprocess
 import sys
+import urllib.error
+import urllib.request
 
-ACCT = "224469ecf8e8a619106fe8ffa19c7a43"
-API = "https://api.cloudflare.com/client/v4"
-GITEA = "http://192.168.1.2:3000/api/v1"
+CF = "https://api.cloudflare.com/client/v4"
+GITEA = os.environ.get("GITEA_URL", "http://192.168.1.2:3000")
 
+SUB = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CF_ACCESS_SUBDOMAIN", "")
+if not SUB:
+    sys.exit("usage: ci-ensure-access-token.py <subdomain>")
 
-def cf(method, path, data=None, token=None):
-    token = token or os.environ["CF_MINT_TOKEN"]
-    cmd = ["curl", "-4", "-s", "-X", method, "-H", f"Authorization: Bearer {token}"]
-    if data is not None:
-        cmd += ["-H", "Content-Type: application/json", "-d", json.dumps(data)]
-    cmd.append(API + path)
-    out = subprocess.run(cmd, capture_output=True, text=True).stdout
-    return json.loads(out) if out.strip() else {"success": False}
+existing_id = os.environ.get("CF_ACCESS_CLIENT_ID", "")
+existing_secret = os.environ.get("CF_ACCESS_CLIENT_SECRET", "")
 
+if existing_id and existing_secret:
+    print(f"CF_ACCESS_CLIENT_ID={existing_id}")
+    print(f"CF_ACCESS_CLIENT_SECRET={existing_secret}")
+    sys.exit(0)
 
-def gitea_put_secret(name, value):
-    repo = os.environ["GITHUB_REPOSITORY"]
-    tok = os.environ["GITHUB_TOKEN"]
-    r = subprocess.run(
-        ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "PUT",
-         "-H", "Authorization: token " + tok, "-H", "Content-Type: application/json",
-         "-d", json.dumps({"data": value}),
-         f"{GITEA}/repos/{repo}/actions/secrets/{name}"],
-        capture_output=True, text=True)
-    return r.stdout.strip()
+mint = os.environ.get("CF_MINT_TOKEN", "")
+if not mint:
+    sys.exit("CF_ACCESS_CLIENT_ID/SECRET missing and no CF_MINT_TOKEN to mint one")
 
 
-def mask(s):
-    return f"{s[:4]}...{s[-4:]}" if len(s) > 10 else "***"
+def cf(path, method="GET", body=None):
+    req = urllib.request.Request(
+        CF + path,
+        method=method,
+        headers={"Authorization": f"Bearer {mint}", "Content-Type": "application/json"},
+    )
+    data = json.dumps(body).encode() if body is not None else None
+    try:
+        with urllib.request.urlopen(req, data=data, timeout=30) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"CF API {method} {path}: {e.code} {e.read()[:300]}")
 
 
-def main():
-    subdomain = sys.argv[1]
-    # Already provisioned as repo secrets -> injected as env by the runner.
-    if os.environ.get("CF_ACCESS_CLIENT_ID") and os.environ.get("CF_ACCESS_CLIENT_SECRET"):
-        with open(os.environ["GITHUB_ENV"], "a") as f:
-            f.write(f"CF_ACCESS_CLIENT_ID={os.environ['CF_ACCESS_CLIENT_ID']}\n")
-            f.write(f"CF_ACCESS_CLIENT_SECRET={os.environ['CF_ACCESS_CLIENT_SECRET']}\n")
-        print(f"using existing service token for {subdomain} "
-              f"({mask(os.environ['CF_ACCESS_CLIENT_ID'])})")
-        return
+try:
+    accts = cf("/accounts")["result"]
+except SystemExit as e:
+    sys.exit(f"CF_MINT_TOKEN cannot list accounts: {e}")
+if not accts:
+    sys.exit("CF_MINT_TOKEN sees no accounts")
+acc = accts[0]["id"]
 
-    label = subdomain.split(".")[0]
-    tok_name = f"{label}-apk"
+# --- service token: find by name, else create; if exists but secret lost, rotate ---
+toks = cf(f"/accounts/{acc}/access/service_tokens")["result"]
+tok = next((t for t in toks if t.get("name") == f"ci-{SUB}"), None)
+if tok:
+    rot = cf(f"/accounts/{acc}/access/service_tokens/{tok['id']}/rotate", "POST")
+    new_id, new_secret = rot["result"]["client_id"], rot["result"]["client_secret"]
+else:
+    st = cf(f"/accounts/{acc}/access/service_tokens", "POST",
+            {"name": f"ci-{SUB}", "type": "service_token"})["result"]
+    new_id, new_secret = st["client_id"], st["client_secret"]
 
-    # 1. Access app
-    apps = cf("GET", f"/accounts/{ACCT}/access/apps")
-    app = next((a for a in apps.get("result", []) if a.get("domain") == subdomain), None)
-    if not app:
-        r = cf("POST", f"/accounts/{ACCT}/access/apps",
-               {"name": subdomain, "domain": subdomain, "type": "self_hosted",
-                "session_duration": "24h"})
-        if not r.get("success"):
-            sys.exit(f"create Access app failed: {r.get('errors')}")
-        app = r["result"]
-        print(f"created Access app {subdomain} ({app['id']})")
-    else:
-        print(f"Access app exists {subdomain} ({app['id']})")
-    app_id = app["id"]
+# --- Access app: find by domain, else create ---
+apps = cf(f"/accounts/{acc}/access/apps")["result"]
+app = next((a for a in apps if a.get("domain") == SUB), None)
+if not app:
+    app = cf(f"/accounts/{acc}/access/apps", "POST",
+             {"name": f"CI {SUB}", "domain": SUB, "type": "self_hosted",
+              "app_domain": f"https://{SUB}"})["result"]
+app_id = app["id"]
 
-    # 2. Service token (find by name; create if missing)
-    sts = cf("GET", f"/accounts/{ACCT}/access/service_tokens")
-    st = next((t for t in sts.get("result", []) if t.get("name") == tok_name), None)
-    if st:
-        print(f"service token exists {tok_name} ({st['id']}) — but client_secret unknown, "
-              "revoke it or reuse via repo secrets; minting fresh instead")
-        r = cf("POST", f"/accounts/{ACCT}/access/service_tokens", {"name": tok_name})
-    else:
-        r = cf("POST", f"/accounts/{ACCT}/access/service_tokens", {"name": tok_name})
-    if not r.get("success"):
-        sys.exit(f"create service token failed: {r.get('errors')}")
-    st = r["result"]
-    st_id, st_cid, st_cs = st["id"], st["client_id"], st["client_secret"]
-    print(f"minted service token {tok_name} ({mask(st_cid)})")
+# --- non_identity policy gated by the service token (decision must be non_identity) ---
+pols = cf(f"/accounts/{acc}/access/policies")["result"]
+pol = next((p for p in pols if p.get("app_id") == app_id and p.get("decision") == "non_identity"), None)
+if not pol:
+    cf(f"/accounts/{acc}/access/policies", "POST",
+       {"name": f"CI {SUB} service token", "decision": "non_identity",
+        "include": [{"service_token": {"token_id": new_id}}], "app_id": app_id})
 
-    # 3. non_identity policy (mirrors the proven pattern; allow -> 302)
-    pols = cf("GET", f"/accounts/{ACCT}/access/apps/{app_id}/policies")
-    existing = any(
-        inc.get("service_token", {}).get("token_id") == st_id
-        for p in pols.get("result", []) for inc in p.get("include", []))
-    if not existing:
-        prec = max([p.get("precedence") or 0 for p in pols.get("result", [])] or [0]) + 1
-        r = cf("POST", f"/accounts/{ACCT}/access/apps/{app_id}/policies",
-               {"name": f"{tok_name}-token", "decision": "non_identity",
-                "include": [{"service_token": {"token_id": st_id}}], "precedence": prec})
-        if not r.get("success"):
-            sys.exit(f"create policy failed: {r.get('errors')}")
-        print(f"added non_identity policy (precedence {prec})")
+# --- best-effort: save repo secrets for next time ---
+repo = os.environ.get("GITHUB_REPOSITORY", "")
+gtok = os.environ.get("GITEA_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
+if repo and gtok:
+    base = f"{GITEA}/api/v1/repos/{repo}/actions/secrets/"
+    for name, val in (("CF_ACCESS_CLIENT_ID", new_id), ("CF_ACCESS_CLIENT_SECRET", new_secret)):
+        req = urllib.request.Request(
+            base + name, method="PUT",
+            headers={"Authorization": f"token {gtok}", "Content-Type": "application/json"},
+            data=json.dumps({"data": base64.b64encode(val.encode()).decode()}).encode(),
+        )
+        try:
+            urllib.request.urlopen(req, timeout=30).read()
+        except Exception as e:  # noqa: BLE001
+            print(f"::warning::could not save repo secret {name}: {e}")
 
-    # 4. Store as repo secrets for future builds
-    h1 = gitea_put_secret("CF_ACCESS_CLIENT_ID", st_cid)
-    h2 = gitea_put_secret("CF_ACCESS_CLIENT_SECRET", st_cs)
-    print(f"stored repo secrets (http {h1}/{h2})")
-
-    # 5. Export for this build
-    with open(os.environ["GITHUB_ENV"], "a") as f:
-        f.write(f"CF_ACCESS_CLIENT_ID={st_cid}\n")
-        f.write(f"CF_ACCESS_CLIENT_SECRET={st_cs}\n")
-    print(f"provisioned service token for {subdomain} ({mask(st_cid)})")
-
-
-if __name__ == "__main__":
-    main()
+print(f"CF_ACCESS_CLIENT_ID={new_id}")
+print(f"CF_ACCESS_CLIENT_SECRET={new_secret}")

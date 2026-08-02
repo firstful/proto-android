@@ -164,3 +164,8 @@ dependencies {
     // Debug
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+// Expose the computed version name to CI for store publish metadata.
+tasks.register("printVersionName") {
+    doLast { println(versionNameStr) }
+}

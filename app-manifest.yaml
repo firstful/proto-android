@@ -1,19 +1,14 @@
-# Talaria — app manifest for the Sutliff Apps build pipeline.
-#
-# Declares what this app needs from CI infra:
-#   subdomains: hosts the app talks to through Cloudflare Access — CI ensures an
-#               Access app + service token (non_identity policy) exists for each
-#               and injects the token into the build (BuildConfig fields).
-#   apk:        how to build + publish this app's APK.
+# Talaria app manifest — declares the subdomain(s) the APK needs and the build.
+# Schema documented in homelab-docs architecture/apk-build-pipeline.md.
 name: talaria
-publisher: reed
 subdomains:
   - hostname: talaria.ffilt.us
-    purpose: real-time voice PTT gateway (WebSocket wss://talaria.ffilt.us/v1/ptt)
+    purpose: voice PTT gateway (wss://talaria.ffilt.us/v1/ptt)
 apk:
   package: com.reedsutliff.talaria
   path: android
   task: assembleRelease
   storeDir: Talaria
+  publisher: reed
   extraProps:
     talariaWsUrl: wss://talaria.ffilt.us/v1/ptt

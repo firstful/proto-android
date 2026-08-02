@@ -1,0 +1,58 @@
+name: Build APK + publish to store
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', 'app-manifest.yaml', 'scripts/**', '.gitea/workflows/**']
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: [android]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install python3 + curl (SDK image may lack them)
+        run: |
+          apt-get update -qq >/dev/null 2>&1
+          apt-get install -y -qq python3 curl >/dev/null 2>&1
+          python3 --version && curl --version | head -1
+
+      - name: Decode signing keystore
+        run: |
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > "$HOME/keystore.jks"
+          echo "ANDROID_KEYSTORE_FILE=$HOME/keystore.jks" >> "$GITHUB_ENV"
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+
+      - name: Ensure CF Access service token
+        run: |
+          python3 scripts/ci-ensure-access-token.py talaria.ffilt.us >> "$GITHUB_ENV"
+        env:
+          CF_MINT_TOKEN: ${{ secrets.CF_MINT_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Build release APK
+        run: |
+          cd android
+          ./gradlew :app:assembleRelease \
+            -PcfAccessClientId="$CF_ACCESS_CLIENT_ID" \
+            -PcfAccessClientSecret="$CF_ACCESS_CLIENT_SECRET" \
+            -PtalariaWsUrl="wss://talaria.ffilt.us/v1/ptt" \
+            --no-daemon
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+      - name: Publish APK to store
+        run: |
+          set -euo pipefail
+          cd android
+          VERSION=$(./gradlew -q :app:printVersionName --no-daemon | tail -1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -1)
+          echo "APK=$APK VERSION=$VERSION"
+          curl -sf -X POST "http://appstore.appstore.svc.cluster.local:8080/publish/Talaria/$(basename "$APK")" \
+            -H "X-Publish-Token: ${{ secrets.APPSTORE_PUBLISH_TOKEN }}" \
+            -F "payload=@$APK" \
+            -F "manifest={\"app\":\"com.reedsutliff.talaria\",\"name\":\"Talaria\",\"version\":\"$VERSION\"}"
+          echo "PUBLISHED"
