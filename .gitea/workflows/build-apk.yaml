@@ -1,0 +1,66 @@
+name: build-apk
+on:
+  push:
+    paths:
+      - 'android/**'
+      - 'app-manifest.yaml'
+      - '.gitea/workflows/build-apk.yaml'
+      - 'scripts/ci-*.py'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: [android]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read manifest
+        id: manifest
+        run: |
+          python3 - <<'EOF'
+          import yaml
+          m = yaml.safe_load(open('app-manifest.yaml'))
+          print(f"subdomain={m['subdomains'][0]['hostname']}")
+          print(f"ws_url={m['apk']['extraProps']['talariaWsUrl']}")
+          EOF
+
+      - name: Ensure Cloudflare Access token for subdomain
+        env:
+          CF_MINT_TOKEN: ${{ secrets.CF_MINT_TOKEN }}
+        run: |
+          SUBDOMAIN=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['subdomains'][0]['hostname'])")
+          python3 scripts/ci-ensure-access-token.py "$SUBDOMAIN"
+
+      - name: Decode signing keystore
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > /tmp/keystore.jks
+          chmod 600 /tmp/keystore.jks
+          ls -l /tmp/keystore.jks
+
+      - name: Build + sign release APK
+        env:
+          ANDROID_KEYSTORE_FILE: /tmp/keystore.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          WS_URL=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['apk']['extraProps']['talariaWsUrl'])")
+          cd android
+          ./gradlew assembleRelease \
+            -PcfAccessClientId="$CF_ACCESS_CLIENT_ID" \
+            -PcfAccessClientSecret="$CF_ACCESS_CLIENT_SECRET" \
+            -PtalariaWsUrl="$WS_URL"
+
+      - name: Verify signature
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | tail -1)
+          "$APKSIGNER" verify --print-certs android/app/build/outputs/apk/release/app-release.apk | head -6
+
+      - name: Publish to Sutliff Apps store
+        env:
+          APPSTORE_PUBLISH_TOKEN: ${{ secrets.APPSTORE_PUBLISH_TOKEN }}
+          APPSTORE_URL: http://apps.ffilt.us
+        run: |
+          python3 scripts/ci-publish-apk.py android/app/build/outputs/apk/release/app-release.apk
