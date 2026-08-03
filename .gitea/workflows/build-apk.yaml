@@ -63,11 +63,13 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           WS_URL=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['apk']['extraProps']['talariaWsUrl'])")
+          TELEMETRY_URL=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['apk']['extraProps'].get('telemetryUrl', 'https://telemetry.ffilt.us/'))")
           cd android
           ./gradlew assembleRelease \
             -PcfAccessClientId="$CF_ACCESS_CLIENT_ID" \
             -PcfAccessClientSecret="$CF_ACCESS_CLIENT_SECRET" \
-            -PtalariaWsUrl="$WS_URL"
+            -PtalariaWsUrl="$WS_URL" \
+            -PtelemetryUrl="$TELEMETRY_URL"
 
       - name: Verify signature
         run: |

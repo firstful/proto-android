@@ -12,3 +12,4 @@ apk:
   publisher: reed
   extraProps:
     talariaWsUrl: wss://talaria.ffilt.us/v1/ptt
+    telemetryUrl: https://telemetry.ffilt.us/

@@ -94,6 +94,9 @@ android {
         buildConfigField("String", "CF_ACCESS_CLIENT_ID", "\"${project.findProperty("cfAccessClientId") ?: ""}\"")
         buildConfigField("String", "CF_ACCESS_CLIENT_SECRET", "\"${project.findProperty("cfAccessClientSecret") ?: ""}\"")
         buildConfigField("String", "TALARIA_WS_URL", "\"${project.findProperty("talariaWsUrl") ?: "wss://talaria.ffilt.us/v1/ptt"}\"")
+        // Telemetry ingest target — injected via -PtelemetryUrl in CI; default keeps
+        // local/debug builds reporting too (fire-and-forget, no auth needed).
+        buildConfigField("String", "TELEMETRY_URL", "\"${project.findProperty("telemetryUrl") ?: "https://telemetry.ffilt.us/"}\"")
         // Auto versioning fields
         buildConfigField("int", "VERSION_CODE", "$gitCommitCount")
         buildConfigField("String", "VERSION_NAME", "\"${versionNameStr}\"")

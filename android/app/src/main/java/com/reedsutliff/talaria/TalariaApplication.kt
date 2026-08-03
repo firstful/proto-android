@@ -53,6 +53,9 @@ class TalariaApplication : Application() {
         LogBuffer.log("I", TAG, "Crash handler installed ✓")
         // Update check is now handled by TalariaViewModel with a user-facing
         // modal dialog — no auto-download in the background.
+
+        // Sutliff telemetry: report app launch (fire-and-forget, never affects app)
+        Telemetry.send("talaria ${BuildConfig.VERSION_NAME} app_launch")
     }
 
     /**
