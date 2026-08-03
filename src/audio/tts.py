@@ -135,24 +135,28 @@ class TTSProcessor:
                     buffer += chunk["data"]
             if buffer and not (cancel_event and cancel_event.is_set()):
                 proc.stdin.write(buffer)
+                await proc.stdin.drain()  # required — close() alone can drop unwritten data
             proc.stdin.close()
         
         feed_task = asyncio.create_task(feed_tts())
-        
+        # feed_tts buffers the entire MP3, then writes + drains + closes stdin.
+        # Wait for it before reading ffmpeg output — a concurrent wait_for(read)
+        # with a 0.5s timeout cancels StreamReader.read() mid-flight and the
+        # cancelled reader returns EOF on subsequent reads (0 bytes output).
         try:
+            await feed_task
+
             while True:
                 if cancel_event and cancel_event.is_set():
                     proc.kill()
                     break
-                
-                chunk = await asyncio.wait_for(proc.stdout.read(4096), timeout=0.5)
+
+                chunk = await proc.stdout.read(4096)
                 if not chunk:
                     break
                 yield chunk
-            
+
             await proc.wait()
-        except asyncio.TimeoutError:
-            pass  # Normal — no data yet, continue loop
         except Exception:
             proc.kill()
             raise

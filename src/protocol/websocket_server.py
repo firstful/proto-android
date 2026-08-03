@@ -163,6 +163,11 @@ class MessageHandler:
         self.connection.ptt_state = PTTState.TTS_STREAMING
         cancel_event.clear()
 
+        # TTS — ensure_tts_available() probes edge-tts (idempotent, cached on
+        # success, retried on failure). is_available() alone short-circuits to
+        # tts_fallback before the probe ever runs, so use the async ensure.
+        await tts.ensure_tts_available()
+
         if tts.is_available():
             try:
                 async for chunk in tts.synthesize(reply, cancel_event=cancel_event):

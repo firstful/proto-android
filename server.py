@@ -75,6 +75,17 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_preload_stt())
 
+    # Warm up TTS (edge-tts voice-list fetch) in background — non-blocking,
+    # retried on first PTT if this transiently fails.
+    async def _preload_tts():
+        try:
+            await tts.ensure_tts_available()
+            logger.info("TTS ready")
+        except Exception as e:
+            logger.warning("TTS warm-up failed (will retry on first PTT): %s", e)
+
+    asyncio.create_task(_preload_tts())
+
     logger.info("Talaria ready on %s:%s", HOST, PORT)
     yield
     await hermes.close()
