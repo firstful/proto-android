@@ -61,6 +61,7 @@ android {
         buildConfigField("String", "CF_ACCESS_CLIENT_SECRET", "\"${project.findProperty("cfAccessClientSecret") ?: ""}\"")
         buildConfigField("String", "PROTO_UI_URL", "\"${project.findProperty("protoUiUrl") ?: "https://proto.ffilt.us/"}\"")
         buildConfigField("String", "TELEMETRY_URL", "\"${project.findProperty("telemetryUrl") ?: "https://telemetry.ffilt.us/"}\"")
+        buildConfigField("String", "GIT_HASH", "\"$gitCommitHash\"")
     }
 
     buildFeatures {

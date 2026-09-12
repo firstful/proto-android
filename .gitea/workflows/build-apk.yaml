@@ -41,13 +41,6 @@ jobs:
           ls -l /tmp/keystore.jks
 
       - name: Build + sign release APK
-        env:
-          ANDROID_KEYSTORE_FILE: /tmp/keystore.jks
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          CF_ACCESS_CLIENT_ID: ${{ env.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ env.CF_ACCESS_CLIENT_SECRET }}
         run: |
           UI_URL=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['apk']['extraProps']['protoUiUrl'])")
           TELEMETRY_URL=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['apk']['extraProps'].get('telemetryUrl', 'https://telemetry.ffilt.us/'))")
