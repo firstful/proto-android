@@ -38,7 +38,8 @@ def main():
     now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
     manifest = {
         "app": pkg,
-        "version": "1",  # store derives real version from the APK's BuildConfig/versionName
+        "name": m.get("name", pkg).replace("-", " ").title(),
+        "version": "1",
         "apk": f"{store_dir}/{os.path.basename(apk)}",
         "size": size,
         "built": now,

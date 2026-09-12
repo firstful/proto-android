@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Talaria"
+rootProject.name = "PROTO"
 include(":app")

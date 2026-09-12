@@ -1,24 +1,6 @@
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-.env
-*.log
-.vscode/
-.idea/
-*.egg-info/
-dist/
-build/
-
-# Android build caches
-android/.gradle/
-android/app/build/
-android/build/
-android/local.properties
+# local dev
 *.apk
-
-# Generated test artifacts
-tests/audio/
-tests/__pycache__/
-.pytest_cache/
+android/app/build/
+android/.gradle/
+android/local.properties
+__pycache__/

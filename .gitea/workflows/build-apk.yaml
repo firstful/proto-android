@@ -13,11 +13,6 @@ jobs:
     runs-on: [android]
     container:
       image: cimg/android:2026.07-node
-      # --user root: the SDK image needs it for apt/pip.
-      # -v gradle-cache: job containers are recreated per run; this persists the
-      # gradle home (dist + deps) across jobs. Volume lives in the runner's DinD
-      # daemon (docker-vol PVC). NOTE: runner-config container.options is
-      # IGNORED when the job sets its own container.options — must repeat here.
       options: --user root -v gradle-cache:/root/.gradle
     steps:
       - uses: actions/checkout@v4
@@ -26,16 +21,6 @@ jobs:
         run: |
           python3 -m pip install --quiet pyyaml 2>/dev/null || sudo apt-get install -y -qq python3-yaml >/dev/null
           python3 -c "import yaml; print('pyyaml OK')"
-
-      - name: Read manifest
-        id: manifest
-        run: |
-          python3 - <<'EOF'
-          import yaml
-          m = yaml.safe_load(open('app-manifest.yaml'))
-          print(f"subdomain={m['subdomains'][0]['hostname']}")
-          print(f"ws_url={m['apk']['extraProps']['talariaWsUrl']}")
-          EOF
 
       - name: Ensure Cloudflare Access token for subdomain
         env:
@@ -61,14 +46,16 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          CF_ACCESS_CLIENT_ID: ${{ env.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ env.CF_ACCESS_CLIENT_SECRET }}
         run: |
-          WS_URL=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['apk']['extraProps']['talariaWsUrl'])")
+          UI_URL=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['apk']['extraProps']['protoUiUrl'])")
           TELEMETRY_URL=$(python3 -c "import yaml; print(yaml.safe_load(open('app-manifest.yaml'))['apk']['extraProps'].get('telemetryUrl', 'https://telemetry.ffilt.us/'))")
           cd android
           ./gradlew assembleRelease \
             -PcfAccessClientId="$CF_ACCESS_CLIENT_ID" \
             -PcfAccessClientSecret="$CF_ACCESS_CLIENT_SECRET" \
-            -PtalariaWsUrl="$WS_URL" \
+            -PprotoUiUrl="$UI_URL" \
             -PtelemetryUrl="$TELEMETRY_URL"
 
       - name: Verify signature

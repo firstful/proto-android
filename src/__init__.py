@@ -1,1 +1,0 @@
-"""Talaria voice gateway package."""

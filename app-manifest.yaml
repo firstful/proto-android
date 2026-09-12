@@ -1,15 +1,13 @@
-# Talaria app manifest — declares the subdomain(s) the APK needs and the build.
-# Schema documented in homelab-docs architecture/apk-build-pipeline.md.
-name: talaria
+# App manifest for the Sutliff Apps build pipeline.
+name: proto-android
 subdomains:
-  - hostname: talaria.ffilt.us
-    purpose: voice PTT gateway (wss://talaria.ffilt.us/v1/ptt)
+  - hostname: proto.ffilt.us
+    purpose: PROTO broker web UI + REST/WS (agent comms protocol)
 apk:
-  package: com.reedsutliff.talaria
+  package: com.reedsutliff.protoapp
   path: android
   task: assembleRelease
-  storeDir: Talaria
-  publisher: reed
+  storeDir: Proto
   extraProps:
-    talariaWsUrl: wss://talaria.ffilt.us/v1/ptt
     telemetryUrl: https://telemetry.ffilt.us/
+    protoUiUrl: https://proto.ffilt.us/

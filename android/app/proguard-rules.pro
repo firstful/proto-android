@@ -1,5 +1,3 @@
-# Talaria ProGuard Rules
--keepattributes *Annotation*
--keep class com.reedsutliff.talaria.** { *; }
--dontwarn org.conscrypt.**
+# Keep JS bridge methods used from injected scripts
+-keepclassmembers class com.reedsutliff.protoapp.CfAccessJsBridge { public *; }
 -dontwarn okhttp3.**

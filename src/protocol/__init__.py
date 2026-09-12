@@ -1,1 +1,0 @@
-"""Talaria protocol package."""
