@@ -5,6 +5,8 @@ Reads app-manifest.yaml (apk.storeDir, apk.package), POSTs the APK and a version
 manifest to the store backend. Publish auth via APPSTORE_PUBLISH_TOKEN (repo secret).
 """
 import json
+import glob
+import re
 import os
 import subprocess
 import sys
@@ -13,6 +15,28 @@ import datetime
 
 STORE = os.environ.get("APPSTORE_URL", "http://apps.ffilt.us")
 
+
+
+def apk_version_code(apk: str) -> int | None:
+    """versionCode read from the built APK via aapt2.
+
+    The client decides install-vs-update by comparing this to the installed
+    package's versionCode. Without it the catalog entry has no ordering
+    information, and the client reports "Up to date" forever.
+    """
+    sdk = os.environ.get("ANDROID_HOME", "")
+    for cand in sorted(glob.glob(f"{sdk}/build-tools/*/aapt2"), reverse=True):
+        if not os.path.exists(cand):
+            continue
+        try:
+            out = subprocess.run([cand, "dump", "badging", apk],
+                                 capture_output=True, text=True, timeout=120, check=True).stdout
+        except Exception:
+            continue
+        m = re.search(r"versionCode='(\d+)'", out)
+        if m:
+            return int(m.group(1))
+    return None
 
 def post(path, headers, files=None, data=None):
     cmd = ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
@@ -43,6 +67,7 @@ def main():
         "apk": f"{store_dir}/{os.path.basename(apk)}",
         "size": size,
         "built": now,
+        "versionCode": apk_version_code(apk),
     }
     code = post(f"/publish/{store_dir}/{os.path.basename(apk)}", {}, files=apk, data=manifest)
     print(f"publish -> {STORE}/publish/{store_dir}/{os.path.basename(apk)} (http {code})")
